@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CSV → Flashcards</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #f5f7fa;
+      --card-bg: #ffffff;
+      --text: #222;
+      --accent: #6c63ff;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 40px 20px;
+    }
+
+    h1 {
+      font-size: 2rem;
+      font-weight: 600;
+      margin-bottom: 1.5rem;
+      text-align: center;
+    }
+
+    input[type="file"] {
+      background: var(--card-bg);
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 10px 14px;
+      margin-bottom: 30px;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+    }
+
+    #flashcard-container {
+      perspective: 1500px;
+      width: 600px;
+      height: 400px;
+      margin: 40px 0 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .card {
+      width: 100%;
+      height: 100%;
+      border-radius: 25px;
+      background: var(--card-bg);
+      box-shadow: 0 15px 40px rgba(0, 0, 0, 0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      transition: transform 0.6s;
+      transform-style: preserve-3d;
+      position: relative;
+      cursor: pointer;
+    }
+
+    .card.flipped {
+      transform: rotateY(180deg);
+    }
+
+    .side {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      backface-visibility: hidden;
+      border-radius: 25px;
+      padding: 40px;
+      overflow-y: auto;
+      font-size: 1.3rem;
+      line-height: 1.6;
+    }
+
+    .front { background: var(--card-bg); }
+    .back { background: var(--card-bg); transform: rotateY(180deg); }
+
+    #counter {
+      margin-top: 45px;
+      font-size: 1rem;
+      color: #666;
+      text-align: center;
+      min-height: 24px;
+    }
+
+    #controls, .rating-bar {
+      display: flex;
+      gap: 14px;
+      margin-top: 20px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    button {
+      background: var(--accent);
+      border: none;
+      color: white;
+      padding: 10px 18px;
+      border-radius: 12px;
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 1rem;
+      transition: background 0.2s;
+      box-shadow: 0 4px 12px rgba(108, 99, 255, 0.25);
+    }
+
+    button:hover { background: #5a54e6; }
+
+    .rating-btn {
+      background: #e0e0e0;
+      color: #333;
+      box-shadow: none;
+      transition: transform 0.15s, background 0.2s;
+    }
+
+    .rating-btn:hover { transform: translateY(-2px); }
+
+    .rating-btn[data-type="easy"] { background: #b2f2bb; }
+    .rating-btn[data-type="good"] { background: #c3e7ff; }
+    .rating-btn[data-type="hard"] { background: #ffe6a1; }
+    .rating-btn[data-type="need"] { background: #ffb3b3; }
+    .rating-btn[data-type="know"] { background: #d5b3ff; }
+
+    #resetBtn {
+      margin-top: 30px;
+      background: #ff6b6b;
+      box-shadow: 0 4px 12px rgba(255, 107, 107, 0.25);
+    }
+    #resetBtn:hover {
+      background: #e85c5c;
+    }
+
+    @media (max-width: 700px) {
+      #flashcard-container {
+        width: 90%;
+        height: 320px;
+        margin: 30px 0 0;
+      }
+      .side {
+        padding: 25px;
+        font-size: 1.1rem;
+      }
+      .rating-btn {
+        padding: 8px 12px;
+        font-size: 0.9rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>CSV → Flashcards</h1>
+  <input type="file" id="csvFile" accept=".csv" />
+
+  <div id="flashcard-container">
+    <div id="card" class="card">
+      <div class="side front">Upload a CSV to start!</div>
+      <div class="side back"></div>
+    </div>
+  </div>
+
+  <div id="counter"></div>
+
+  <div id="controls">
+    <button id="prevBtn">Previous</button>
+    <button id="nextBtn">Next</button>
+  </div>
+
+  <div class="rating-bar">
+    <button class="rating-btn" data-type="need">Need to Learn</button>
+    <button class="rating-btn" data-type="hard">Hard</button>
+    <button class="rating-btn" data-type="good">Good</button>
+    <button class="rating-btn" data-type="easy">Easy</button>
+    <button class="rating-btn" data-type="know">Know</button>
+  </div>
+
+  <button id="resetBtn">Reset Progress</button>
+
+  <script src="https://unpkg.com/papaparse@5.3.2/papaparse.min.js"></script>
+  <script>
+    const STORAGE_KEY = 'flashcardsData_v1';
+    const fileInput = document.getElementById('csvFile');
+    const card = document.getElementById('card');
+    const front = card.querySelector('.front');
+    const back = card.querySelector('.back');
+    const nextBtn = document.getElementById('nextBtn');
+    const prevBtn = document.getElementById('prevBtn');
+    const counter = document.getElementById('counter');
+    const ratingButtons = document.querySelectorAll('.rating-btn');
+    const resetBtn = document.getElementById('resetBtn');
+
+    let flashcards = [];
+    let current = 0;
+    let flipped = false;
+
+    window.addEventListener('load', () => {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        flashcards = JSON.parse(saved);
+        filterKnown();
+        showCard();
+      }
+    });
+
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: (results) => {
+          const parsed = results.data.map(row => ({
+            front: row[Object.keys(row)[0]],
+            back: row[Object.keys(row)[1]],
+            rating: null
+          })).filter(c => c.front && c.back);
+
+          parsed.forEach(p => {
+            const existing = flashcards.find(f => f.front === p.front && f.back === p.back);
+            if (existing) p.rating = existing.rating;
+          });
+
+          flashcards = parsed;
+          saveData();
+          filterKnown();
+          current = 0;
+          flipped = false;
+          showCard();
+        }
+      });
+    });
+
+    function saveData() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(flashcards));
+    }
+
+    function filterKnown() {
+      flashcards = flashcards.filter(f => f.rating !== 'know');
+    }
+
+    function showCard() {
+      if (!flashcards.length) {
+        front.textContent = "🎉 You're done! No cards left to review.";
+        back.textContent = "";
+        counter.textContent = "";
+        return;
+      }
+      const { front: f, back: b } = flashcards[current];
+      front.textContent = f;
+      back.textContent = b;
+      card.classList.remove('flipped');
+      flipped = false;
+      counter.textContent = `Card ${current + 1} of ${flashcards.length}`;
+    }
+
+    card.addEventListener('click', () => {
+      flipped = !flipped;
+      card.classList.toggle('flipped');
+    });
+
+    nextBtn.addEventListener('click', () => {
+      if (!flashcards.length) return;
+      current = (current + 1) % flashcards.length;
+      showCard();
+    });
+
+    prevBtn.addEventListener('click', () => {
+      if (!flashcards.length) return;
+      current = (current - 1 + flashcards.length) % flashcards.length;
+      showCard();
+    });
+
+    ratingButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (!flashcards.length) return;
+        const type = btn.dataset.type;
+        flashcards[current].rating = type;
+        saveData();
+
+        if (type === 'know') {
+          flashcards.splice(current, 1);
+          if (current >= flashcards.length) current = 0;
+        } else {
+          current = (current + 1) % flashcards.length;
+        }
+
+        showCard();
+      });
+    });
+
+    resetBtn.addEventListener('click', () => {
+      if (confirm("Reset all progress? This will clear saved data.")) {
+        localStorage.removeItem(STORAGE_KEY);
+        flashcards = [];
+        current = 0;
+        flipped = false;
+        front.textContent = "Upload a CSV to start!";
+        back.textContent = "";
+        counter.textContent = "";
+      }
+    });
+  </script>
+</body>
+</html>
